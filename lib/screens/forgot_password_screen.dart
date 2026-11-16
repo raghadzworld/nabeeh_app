@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../main.dart';
 import '../services/email_service.dart';
+import '../widgets/field_error_box.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -129,32 +130,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
       debugPrint('sendPasswordReset failed: code=${e.code} message=${e.message} details=${e.details}');
       if (mounted) {
         if (e.code == 'not-found') {
-          FocusScope.of(context).unfocus();
-          await Future.delayed(const Duration(milliseconds: 200));
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text(
-                'لا يوجد حساب مرتبط بهذا البريد الإلكتروني',
-                style: TextStyle(
-                  fontFamily: 'IBMPlexSansArabic',
-                  color: Colors.white,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              backgroundColor: Colors.red.shade700,
-              behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.only(bottom: 20, left: 16, right: 16),
-              duration: const Duration(seconds: 3),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          );
+          setState(() => _emailError = 'لا يوجد حساب مرتبط بهذا البريد الإلكتروني');
         } else {
-          setState(() => _emailSent = true);
-          _startCountdown();
+          setState(() => _emailError = 'تعذّر إرسال رابط إعادة التعيين، حاول مرة أخرى');
         }
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _emailError = 'تعذّر الاتصال بالخدمة، تحقق من الإنترنت وحاول مرة أخرى');
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -408,6 +391,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
           controller: _emailController,
           focusNode: _emailFocus,
           onChanged: (val) => _validateEmail(val),
+          hasError: _emailError.isNotEmpty,
         ),
         _buildErrorText(_emailError),
         const SizedBox(height: 28),
@@ -631,28 +615,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     );
   }
 
-  Widget _buildErrorText(String error) {
-    if (error.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 6, right: 4),
-      child: Row(
-        children: [
-          const Icon(Icons.cancel_rounded, size: 16, color: Colors.red),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              error,
-              style: const TextStyle(
-                fontFamily: 'IBMPlexSansArabic',
-                fontSize: 12,
-                color: Colors.red,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildErrorText(String error) => FieldErrorBox(message: error);
 
   Widget _buildInputField({
     required String hint,
@@ -660,6 +623,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     required TextEditingController controller,
     FocusNode? focusNode,
     ValueChanged<String>? onChanged,
+    bool hasError = false,
   }) {
     return TextField(
       controller: controller,
@@ -688,15 +652,24 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFD1D5DB), width: 1.5),
+          borderSide: BorderSide(
+            color: hasError ? const Color(0xFFE99C96) : const Color(0xFFD1D5DB),
+            width: 1.5,
+          ),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFD1D5DB), width: 1.5),
+          borderSide: BorderSide(
+            color: hasError ? const Color(0xFFE99C96) : const Color(0xFFD1D5DB),
+            width: 1.5,
+          ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF1773CF), width: 1.5),
+          borderSide: BorderSide(
+            color: hasError ? const Color(0xFFD9564F) : const Color(0xFF1773CF),
+            width: 1.5,
+          ),
         ),
       ),
     );

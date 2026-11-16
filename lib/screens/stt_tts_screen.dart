@@ -128,8 +128,8 @@ class _SttTtsScreenState extends State<SttTtsScreen>
   void _toggleRecording() async {
     if (_isStartingStt) return;
     if (_isRecording) {
-      await _stopListening();
       if (mounted) setState(() => _isRecording = false);
+      await _stopListening();
       return;
     }
     setState(() => _textContent = '');

@@ -1,22 +1,28 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import admin from "firebase-admin";
 import nodemailer from "nodemailer";
-import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
 admin.initializeApp();
 
 // ════════════════════════════════════════════════════════
-//  LOGO — نقرأ الصورة من مجلد الفنكشنز نفسها ونحولها لـ base64
-//  عشان تظهر بشكل مضمون بكل تطبيقات الإيميل بدون الاعتماد
-//  على رابط خارجي (Firebase Hosting) قد يُحظر من بعض العملاء
+//  LOGO — مرفق inline حتى لا يكبّر HTML ويتسبب بقص الرسالة في Gmail.
 // ════════════════════════════════════════════════════════
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const logoPath = path.join(__dirname, "assets", "logo_nabeeh.png");
-const LOGO_BASE64 = fs.readFileSync(logoPath).toString("base64");
-const LOGO_DATA_URI = `data:image/png;base64,${LOGO_BASE64}`;
+const LOGO_CID = "nabeeh-logo";
+const brandLogoPath = logoPath;
+const BRAND_LOGO_CID = "nabeeh-brand-logo";
+
+function emailLogoAttachment() {
+  return [{ filename: "logo_nabeeh.png", path: logoPath, cid: LOGO_CID }];
+}
+
+function brandLogoAttachment() {
+  return [{ filename: "logo_nabeeh.png", path: brandLogoPath, cid: BRAND_LOGO_CID }];
+}
 
 // ─── sendSosEmail ─────────────────────────────────────────────────────────────
 export const sendSosEmail = onCall(async (request) => {
@@ -122,16 +128,84 @@ const FOOTER_HTML = `
       <div class="domain">Nabeeh.appl@gmail.com</div>
     </div>
     <div class="fdesc">
-      تلقيتَ هذه الرسالة لأن هذا البريد مرتبط بحساب في تطبيق نبيه.
+      وصلت إليك هذه الرسالة لأن هذا البريد مرتبط بحساب في تطبيق نبيه.
       للاستفسار: <a href="mailto:Nabeeh.appl@gmail.com">Nabeeh.appl@gmail.com</a>
     </div>
   </footer>
   </div>
-  <div class="below">رسالة من نظام نبيه — لا تردّ على هذا البريد</div>
+  <div class="below">رسالة آلية من تطبيق نبيه — يرجى عدم الرد على هذا البريد</div>
 `;
 
 function heroHtml() {
-  return `<div class="hero" style="background:#2A3173;padding:28px 24px;border-bottom:3px solid #C9A36B;direction:rtl;text-align:right;"><img src="${LOGO_DATA_URI}" alt="نبيه" style="height:81px;width:auto;display:inline-block;"></div>`;
+  return `<div class="hero" style="background:#2A3173;padding:28px 24px;border-bottom:3px solid #C9A36B;direction:rtl;text-align:right;"><img src="cid:${LOGO_CID}" alt="نبيه" width="180" style="width:180px;height:auto;display:block;border:0;"></div>`;
+}
+
+function escapeHtml(value = "") {
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]);
+}
+
+async function getAccountDisplayName(userRecord) {
+  if (userRecord?.displayName) return userRecord.displayName;
+  if (!userRecord?.uid) return "";
+
+  try {
+    const profile = await admin.firestore().collection("User").doc(userRecord.uid).get();
+    return profile.get("FullName") || "";
+  } catch (err) {
+    console.warn("Could not load the user's display name for an email.", err);
+    return "";
+  }
+}
+
+function accountActionEmail({ name, intro, buttonLabel, actionUrl, notice, detailLabel, detailValue }) {
+  const safeName = escapeHtml(name || "بك");
+  const safeUrl = actionUrl ? escapeHtml(actionUrl) : "";
+  const actionSection = actionUrl && buttonLabel ? `
+    <tr><td align="center" style="padding:20px 24px;">
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr>
+        <td align="center" bgcolor="#2a3173" style="border-radius:5px;background:#2a3173;">
+          <a href="${safeUrl}" style="display:inline-block;padding:14px 24px;color:#ffffff;text-decoration:none;font-size:16px;font-weight:bold;line-height:1.4;">${escapeHtml(buttonLabel)}</a>
+        </td>
+      </tr></table>
+    </td></tr>
+    <tr><td style="padding:4px 24px 18px;">
+      <p style="margin:0 0 8px;font-size:13px;line-height:1.8;color:#596764;">إذا لم يعمل الزر، افتح الرابط التالي:</p>
+      <p style="margin:0;font-size:12px;line-height:1.7;direction:ltr;text-align:left;word-break:break-all;"><a href="${safeUrl}" style="color:#2a3173;">${safeUrl}</a></p>
+    </td></tr>` : "";
+  const detailSection = detailValue ? `
+    <tr><td style="padding:4px 24px 18px;">
+      <p style="margin:0 0 8px;font-size:13px;line-height:1.8;color:#596764;">${escapeHtml(detailLabel || "")}</p>
+      <p style="margin:0;font-size:14px;line-height:1.7;direction:ltr;text-align:left;word-break:break-all;color:#172c2a;">${escapeHtml(detailValue)}</p>
+    </td></tr>` : "";
+
+  return `<!doctype html>
+<html lang="ar" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>نبيه</title></head>
+<body style="margin:0;padding:24px 12px;background:#f2f5f4;color:#172c2a;font-family:Tahoma,Arial,sans-serif;direction:rtl;text-align:right;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(intro)}</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #dfe7e4;border-radius:8px;">
+    <tr><td align="center" height="160" style="height:160px;padding:12px 24px;background:#252153;color:#ffffff;border-bottom:3px solid #c9a36b;text-align:center;">
+      <img src="cid:${BRAND_LOGO_CID}" alt="نبيه" width="136" height="136" style="display:block;width:136px;height:136px;margin:0 auto;border:0;">
+    </td></tr>
+    <tr><td style="padding:28px 24px 12px;">
+      <h1 style="margin:0 0 14px;font-size:22px;line-height:1.6;color:#172c2a;">مرحبًا ${safeName}،</h1>
+      <p style="margin:0;font-size:16px;line-height:1.9;color:#465653;">${escapeHtml(intro)}</p>
+    </td></tr>
+    ${detailSection}
+    ${actionSection}
+    <tr><td style="padding:16px 24px;background:#f7f8f6;border-top:1px solid #e5e9e7;">
+      <p style="margin:0;font-size:13px;line-height:1.8;color:#596764;">${escapeHtml(notice)}</p>
+      <p style="margin:12px 0 0;font-size:12px;line-height:1.7;color:#78817e;">هذه رسالة تلقائية من تطبيق نبيه، يرجى عدم الرد عليها.</p>
+    </td></tr>
+  </table>
+</body>
+</html>`;
 }
 
 
@@ -143,52 +217,32 @@ export const sendCustomPasswordReset = onCall(async (request) => {
   const { email } = request.data;
   if (!email) throw new HttpsError("invalid-argument", "email مطلوب");
 
-  // توليد رابط إعادة التعيين
   let resetLink;
+  let userRecord;
   try {
+    userRecord = await admin.auth().getUserByEmail(email);
     resetLink = await admin.auth().generatePasswordResetLink(email);
   } catch (err) {
     throw new HttpsError("not-found", "البريد غير مسجّل في النظام");
   }
 
-  const html = `<!doctype html><html lang="ar" dir="rtl"><head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>إعادة تعيين كلمة المرور — نبيه</title>
-    ${SHARED_STYLES}
-  </head><body>
-    <div class="card">
-      ${heroHtml()}
-      <div class="pad">
-        <h1>طلبٌ لإنشاء كلمة مرور جديدة</h1>
-        <p class="lead">
-          مرحباً،<br>
-          استلمنا طلباً لإعادة تعيين كلمة المرور لحسابك في
-          <strong style="color:#1B1F2A;font-weight:600;">نبيه</strong>
-          المرتبط بـ
-          <span style="direction:ltr;display:inline-block;color:#1B1F2A;font-weight:500;">${email}</span>.
-          اضغط على الزر أدناه لاختيار كلمة مرور جديدة.
-        </p>
-      </div>
-      <div class="btnwrap">
-        <a class="btn" href="${resetLink}" style="color:#ffffff !important;">إنشاء كلمة مرور جديدة ←</a>
-      </div>
-      <div class="urlblock">
-        <div class="url-label">إذا لم يعمل الزر، انسخ الرابط التالي:</div>
-        <div class="url">${resetLink}</div>
-      </div>
-      <div class="warn">
-        <b>ينتهي هذا الرابط خلال ساعة واحدة.</b>
-        <span>إذا لم تطلب إعادة تعيين كلمة المرور، يمكنك تجاهل هذه الرسالة بأمان.</span>
-      </div>
-      ${FOOTER_HTML}
-  </body></html>`;
+  const displayName = await getAccountDisplayName(userRecord);
+
+  const html = accountActionEmail({
+    name: displayName,
+    intro: "وصلنا طلب لإعادة تعيين كلمة المرور لحسابك في نبيه. استخدم الزر أدناه لاختيار كلمة مرور جديدة.",
+    buttonLabel: "إعادة تعيين كلمة المرور",
+    actionUrl: resetLink,
+    notice: "إذا لم تطلب إعادة تعيين كلمة المرور، فتجاهل هذه الرسالة. رابط إعادة التعيين صالح لمدة ساعة.",
+  });
 
   await getTransporter().sendMail({
     from: `"نبيه" <${process.env.GMAIL_USER}>`,
     to: email,
     subject: "إعادة تعيين كلمة المرور لحسابك في نبيه",
     html,
+    text: `مرحبًا ${displayName || "بك"}. وصلنا طلب لإعادة تعيين كلمة المرور لحسابك في نبيه.\n\nلاختيار كلمة مرور جديدة، افتح الرابط التالي:\n${resetLink}\n\nرابط إعادة التعيين صالح لمدة ساعة. إذا لم تطلب ذلك، فتجاهل هذه الرسالة.`,
+    attachments: brandLogoAttachment(),
   });
 
   return { success: true };
@@ -205,57 +259,36 @@ export const sendVerifyNewEmail = onCall(async (request) => {
   const { newEmail } = request.data;
   if (!newEmail) throw new HttpsError("invalid-argument", "newEmail مطلوب");
 
-  // توليد رابط تحقق للإيميل الجديد
   let verifyLink;
   const currentEmail = request.auth.token.email;
   if (!currentEmail) throw new HttpsError("internal", "تعذّر تحديد البريد الحالي");
 
+  let userRecord;
   try {
+    userRecord = await admin.auth().getUser(request.auth.uid);
     verifyLink = await admin.auth().generateVerifyAndChangeEmailLink(currentEmail, newEmail);
   } catch (err) {
     throw new HttpsError("internal", err.message);
   }
 
-  const html = `<!doctype html><html lang="ar" dir="rtl"><head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>تأكيد بريدك الجديد — نبيه</title>
-    ${SHARED_STYLES}
-  </head><body>
-    <div class="card">
-      ${heroHtml()}
-      <div class="pad">
-        <h1>أكّد بريدك الجديد لتفعيل التغيير</h1>
-        <p class="lead">
-          مرحباً،<br>
-          طُلب ربط هذا البريد بحساب في تطبيق
-          <strong style="color:#1B1F2A;font-weight:600;">نبيه</strong>.
-          اتبع الرابط أدناه للتحقق من ملكيتك لهذا البريد.
-        </p>
-      </div>
-      <div class="emailbox">
-        <span class="lbl">البريد الجديد</span>
-        <span class="val">${newEmail}</span>
-      </div>
-      <div class="btnwrap">
-        <a class="btn" href="${verifyLink}" style="color:#ffffff !important;">تأكيد البريد ←</a>
-      </div>
-      <div class="urlblock">
-        <div class="url-label">إذا لم يعمل الزر، انسخ الرابط التالي:</div>
-        <div class="url">${verifyLink}</div>
-      </div>
-      <div class="warn">
-        <b>إذا لم تطلب هذا التغيير</b>
-        <span>تجاهل هذه الرسالة — لن يحدث أي تغيير على أي حساب.</span>
-      </div>
-      ${FOOTER_HTML}
-  </body></html>`;
+  const displayName = await getAccountDisplayName(userRecord);
+  const html = accountActionEmail({
+    name: displayName,
+    intro: "وصلنا طلب لتغيير البريد الإلكتروني المرتبط بحسابك في نبيه. أكّد البريد الجديد من الزر أدناه.",
+    detailLabel: "البريد الإلكتروني الجديد",
+    detailValue: newEmail,
+    buttonLabel: "تأكيد البريد الإلكتروني",
+    actionUrl: verifyLink,
+    notice: "إذا لم تطلب هذا التغيير، فتجاهل هذه الرسالة. لن يتغير البريد الإلكتروني دون التأكيد.",
+  });
 
   await getTransporter().sendMail({
     from: `"نبيه" <${process.env.GMAIL_USER}>`,
     to: newEmail,
-    subject: "تأكيد بريدك الجديد في نبيه",
+    subject: "تأكيد تغيير البريد الإلكتروني في نبيه",
     html,
+    text: `مرحبًا ${displayName || "بك"}. وصلنا طلب لتغيير البريد الإلكتروني المرتبط بحسابك في نبيه إلى ${newEmail}.\n\nلتأكيد التغيير، افتح الرابط التالي:\n${verifyLink}\n\nإذا لم تطلب هذا التغيير، فتجاهل هذه الرسالة.`,
+    attachments: brandLogoAttachment(),
   });
 
   return { success: true };
@@ -272,53 +305,19 @@ export const sendWelcomeEmail = onCall(async (request) => {
   const { email, displayName } = request.data;
   const name = displayName || "";
 
-  const now = new Date();
-  const registrationTime = now.toLocaleString("ar-SA", {
-    timeZone: "Asia/Riyadh",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+  const html = accountActionEmail({
+    name,
+    intro: "يسعدنا انضمامك إلى تطبيق نبيه. تم إنشاء حسابك بنجاح ويمكنك الآن البدء باستخدام التطبيق.",
+    notice: "إذا لم تنشئ هذا الحساب، فغيّر كلمة المرور وراجع النشاط الأخير في حسابك.",
   });
-
-  const html = `<!doctype html><html lang="ar" dir="rtl"><head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>مرحباً بك في نبيه</title>
-    ${SHARED_STYLES}
-  </head><body>
-    <div class="card">
-      ${heroHtml()}
-      <div class="pad">
-        <h1>مرحباً ${name}، يسعدنا انضمامك إلى نبيــه </h1>
-        <p class="lead">
-          لاحظنا إنشاء حساب جديد في تطبيق
-          <strong style="color:#1B1F2A;font-weight:600;">نبيــه</strong>
-          باستخدام هذا البريد الإلكترونـي.
-        </p>
-      </div>
-
-      <div class="note" style="margin-top:16px;">
-        <b>إذا كنت من أنشأ الحساب</b>
-        <span>لا داعي لأي إجراء، حسابك آمن ويمكنك البدء باستخدام نبيه.</span>
-      </div>
-      <div class="warn">
-        <b>إذا لم تكن أنت من أنشأ هذا الحساب، نوصي بشدة بـ:</b>
-        <span>
-          • تغيير كلمة المرور فوراً<br/>
-          • مراجعة النشاط الأخير في حسابك
-        </span>
-      </div>
-
-      ${FOOTER_HTML}
-  </body></html>`;
 
   await getTransporter().sendMail({
     from: `"نبيه" <${process.env.GMAIL_USER}>`,
     to: email,
     subject: "مرحباً بك في نبيه — تأكيد إنشاء الحساب",
     html,
+    text: `مرحبًا ${name || "بك"}. يسعدنا انضمامك إلى تطبيق نبيه. تم إنشاء حسابك بنجاح ويمكنك الآن البدء باستخدام التطبيق.\n\nإذا لم تنشئ هذا الحساب، فغيّر كلمة المرور وراجع النشاط الأخير في حسابك.`,
+    attachments: brandLogoAttachment(),
   });
 
   return { success: true };
@@ -336,48 +335,30 @@ export const sendVerifyEmail = onCall(async (request) => {
   if (!email) throw new HttpsError("invalid-argument", "email مطلوب");
 
   let verifyLink;
+  let userRecord;
   try {
+    userRecord = await admin.auth().getUserByEmail(email);
     verifyLink = await admin.auth().generateEmailVerificationLink(email);
   } catch (err) {
     throw new HttpsError("not-found", "البريد غير مسجّل في النظام");
   }
 
-  const html = `<!doctype html><html lang="ar" dir="rtl"><head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>تفعيل بريدك الإلكتروني — نبيه</title>
-    ${SHARED_STYLES}
-  </head><body>
-    <div class="card">
-      ${heroHtml()}
-      <div class="pad">
-        <h1>خطوة أخيرة لتفعيل حسابك</h1>
-        <p class="lead">
-          مرحباً،<br>
-          يرجى تأكيد بريدك الإلكتروني لتفعيل حسابك في
-          <strong style="color:#1B1F2A;font-weight:600;">نبيه</strong>
-          والبدء باستخدام التطبيق.
-        </p>
-      </div>
-      <div class="btnwrap">
-        <a class="btn" href="${verifyLink}" style="color:#ffffff !important;">تفعيل الحساب ←</a>
-      </div>
-      <div class="urlblock">
-        <div class="url-label">إذا لم يعمل الزر، انسخ الرابط التالي:</div>
-        <div class="url">${verifyLink}</div>
-      </div>
-      <div class="warn">
-        <b>إذا لم تنشئي هذا الحساب</b>
-        <span>تجاهلي هذه الرسالة بأمان.</span>
-      </div>
-      ${FOOTER_HTML}
-  </body></html>`;
+  const name = await getAccountDisplayName(userRecord);
+  const html = accountActionEmail({
+    name,
+    intro: "لتفعيل حسابك في نبيه، أكّد بريدك الإلكتروني من الزر أدناه.",
+    buttonLabel: "تأكيد البريد الإلكتروني",
+    actionUrl: verifyLink,
+    notice: "إذا لم تنشئ هذا الحساب، فتجاهل هذه الرسالة.",
+  });
 
   await getTransporter().sendMail({
     from: `"نبيه" <${process.env.GMAIL_USER}>`,
     to: email,
-    subject: "فعّلي بريدك الإلكتروني في نبيه",
+    subject: "تأكيد البريد الإلكتروني في نبيه",
     html,
+    text: `مرحبًا ${name || "بك"}. لتفعيل حسابك في نبيه، افتح الرابط التالي:\n${verifyLink}\n\nإذا لم تنشئ هذا الحساب، فتجاهل هذه الرسالة.`,
+    attachments: brandLogoAttachment(),
   });
 
   return { success: true };
@@ -402,43 +383,21 @@ export const sendWelcomeVerifyEmail = onCall(async (request) => {
     throw new HttpsError("internal", err.message);
   }
 
-  const html = `<!doctype html><html lang="ar" dir="rtl"><head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>مرحباً بك في نبيه — فعّلي حسابك</title>
-    ${SHARED_STYLES}
-  </head><body>
-    <div class="card">
-      ${heroHtml()}
-      <div class="pad">
-        <h1>مرحباً ${name}، يسعدنا انضمامك إلى نبيــه</h1>
-        <p class="lead">
-          أهلاً بك في تطبيق
-          <strong style="color:#1B1F2A;font-weight:600;">نبيــه</strong>،
-          بقيت خطوة أخيرة فقط لتفعيل حسابك والبدء باستخدام التطبيق.
-        </p>
-      </div>
-      <div class="btnwrap">
-        <a class="btn" href="${verifyLink}" style="color:#ffffff !important;">تفعيل الحساب ←</a>
-      </div>
-      <div class="urlblock">
-        <div class="url-label">إذا لم يعمل الزر، انسخ الرابط التالي:</div>
-        <div class="url">${verifyLink}</div>
-      </div>
-
-      <div class="warn">
-        <b>إذا لم يكن أنت من أنشأ الحساب</b>
-        <span>يمكنك تجاهل هذه الرسالة بأمان — لن يتم تفعيل الحساب دون الضغط على الرابط أعلاه.</span>
-      </div>
-
-      ${FOOTER_HTML}
-  </body></html>`;
+  const html = accountActionEmail({
+    name,
+    intro: "سعداء بانضمامك إلى نبيه. بقيت خطوة واحدة لتأكيد بريدك الإلكتروني وتفعيل حسابك.",
+    buttonLabel: "تأكيد البريد الإلكتروني",
+    actionUrl: verifyLink,
+    notice: "إذا لم تنشئ هذا الحساب، فتجاهل هذه الرسالة. لن يتم تفعيل الحساب دون الضغط على رابط التأكيد.",
+  });
 
   await getTransporter().sendMail({
     from: `"نبيه" <${process.env.GMAIL_USER}>`,
     to: email,
-    subject: "مرحباً بك في نبيه — فعّل حسابك",
+    subject: `مرحبًا ${name || "بك"} في نبيه — أكّد بريدك الإلكتروني`,
     html,
+    text: `مرحبًا ${name || "بك"}، سعداء بانضمامك إلى نبيه.\n\nلتأكيد بريدك الإلكتروني وتفعيل حسابك، افتح الرابط التالي:\n${verifyLink}\n\nإذا لم تنشئ هذا الحساب، فتجاهل هذه الرسالة.`,
+    attachments: brandLogoAttachment(),
   });
 
   return { success: true };

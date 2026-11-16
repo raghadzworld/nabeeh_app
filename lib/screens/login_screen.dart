@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../main.dart';
+import '../widgets/field_error_box.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -35,10 +36,10 @@ class _LoginScreenState extends State<LoginScreen>
   bool _rememberMe = false;
   String _emailError = '';
   String _passwordError = '';
+  String _formError = '';
 
   // --- حالة بانر "الإيميل غير مفعّل" ---
   bool _emailNotVerified = false;
-  String _unverifiedEmail = '';
 
   @override
   void initState() {
@@ -119,6 +120,7 @@ class _LoginScreenState extends State<LoginScreen>
 
   void _validateEmail(String val) {
     setState(() {
+      _formError = '';
       _emailError = val.trim().isEmpty
           ? 'البريد الإلكتروني مطلوب'
           : !RegExp(r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,4}$').hasMatch(val.trim())
@@ -181,26 +183,10 @@ class _LoginScreenState extends State<LoginScreen>
     } on GoogleSignInException catch (e) {
       // المستخدم ألغى نافذة اختيار الحساب أو صار خطأ بالتسجيل
       if (mounted && e.code != GoogleSignInExceptionCode.canceled) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'تعذّر تسجيل الدخول عبر Google، حاولي مرة أخرى',
-              style: TextStyle(fontFamily: 'IBMPlexSansArabic'),
-            ),
-          ),
-        );
+        setState(() => _formError = 'تعذّر تسجيل الدخول عبر Google، حاول مرة أخرى');
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'تعذّر تسجيل الدخول عبر Google، حاولي مرة أخرى',
-              style: TextStyle(fontFamily: 'IBMPlexSansArabic'),
-            ),
-          ),
-        );
-      }
+      if (mounted) setState(() => _formError = 'تعذّر تسجيل الدخول عبر Google، حاول مرة أخرى');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -219,6 +205,7 @@ class _LoginScreenState extends State<LoginScreen>
     setState(() {
       _isLoading = true;
       _emailNotVerified = false;
+      _formError = '';
     });
 
     try {
@@ -237,7 +224,6 @@ class _LoginScreenState extends State<LoginScreen>
         if (mounted) {
           setState(() {
             _emailNotVerified = true;
-            _unverifiedEmail = _emailController.text.trim();
           });
         }
         return;
@@ -268,30 +254,19 @@ class _LoginScreenState extends State<LoginScreen>
           );
         }
       }
-    } on FirebaseAuthException {
+    } on FirebaseAuthException catch (e) {
       if (mounted) {
-        FocusScope.of(context).unfocus();
-        await Future.delayed(const Duration(milliseconds: 200));
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'البريد الإلكتروني أو كلمة المرور غير صحيحة، يرجى التحقق والمحاولة مجدداً',
-              style: TextStyle(
-                fontFamily: 'IBMPlexSansArabic',
-                color: Colors.white,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            backgroundColor: Colors.red.shade700,
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.only(bottom: 20, left: 16, right: 16),
-            duration: const Duration(seconds: 3),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        );
+        setState(() {
+          _formError = '';
+          if (e.code == 'user-not-found') {
+            _emailError = 'لا يوجد حساب مرتبط بهذا البريد الإلكتروني';
+          } else if (e.code == 'wrong-password' ||
+              e.code == 'invalid-credential') {
+            _passwordError = 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
+          } else {
+            _formError = 'تعذّر تسجيل الدخول، حاول مرة أخرى';
+          }
+        });
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -481,8 +456,14 @@ class _LoginScreenState extends State<LoginScreen>
                                   controller: _emailController,
                                   focusNode: _emailFocus,
                                   onChanged: (val) => _validateEmail(val),
+                                  hasError: _emailError.isNotEmpty,
                                 ),
                                 _buildErrorText(_emailError),
+                                if (_emailNotVerified)
+                                  const FieldErrorBox(
+                                    message:
+                                        'بريدك الإلكتروني غير مفعّل بعد. تحقق من بريدك واستخدم رابط التفعيل.',
+                                  ),
                                 const SizedBox(height: 11),
 
                                 _buildInputField(
@@ -495,12 +476,17 @@ class _LoginScreenState extends State<LoginScreen>
                                     () => _obscurePassword = !_obscurePassword,
                                   ),
                                   onChanged: (val) => setState(
-                                    () => _passwordError = val.isEmpty
-                                        ? 'كلمة المرور مطلوبة'
-                                        : '',
+                                    () {
+                                      _formError = '';
+                                      _passwordError = val.isEmpty
+                                          ? 'كلمة المرور مطلوبة'
+                                          : '';
+                                    },
                                   ),
+                                  hasError: _passwordError.isNotEmpty,
                                 ),
                                 _buildErrorText(_passwordError),
+                                _buildErrorText(_formError),
                                 const SizedBox(height: 19),
 
                                 Row(
@@ -583,48 +569,6 @@ class _LoginScreenState extends State<LoginScreen>
                                   ],
                                 ),
                                 const SizedBox(height: 29),
-
-                                if (_emailNotVerified) ...[
-                                  Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 12,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFFFEBEB),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: const Color(0xFFFF4D4D),
-                                        width: 1.2,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        const Icon(
-                                          Icons.error_outline_rounded,
-                                          color: Color(0xFFD32F2F),
-                                          size: 18,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Text(
-                                            'بريدك الإلكتروني غير مفعّل بعد. لقد أرسلنا رسالة تفعيل مسبقاً، يرجى التحقق من بريدك واستخدام رابط التفعيل الموجود.',
-                                            style: const TextStyle(
-                                              fontFamily: 'IBMPlexSansArabic',
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w600,
-                                              color: Color(0xFFD32F2F),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                ],
 
                                 Container(
                                   width: double.infinity,
@@ -879,28 +823,7 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _buildErrorText(String error) {
-    if (error.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 6, right: 4),
-      child: Row(
-        children: [
-          const Icon(Icons.cancel_rounded, size: 16, color: Colors.red),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              error,
-              style: const TextStyle(
-                fontFamily: 'IBMPlexSansArabic',
-                fontSize: 12,
-                color: Colors.red,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildErrorText(String error) => FieldErrorBox(message: error);
 
   Widget _buildInputField({
     required String hint,
@@ -911,6 +834,7 @@ class _LoginScreenState extends State<LoginScreen>
     bool obscure = false,
     VoidCallback? onToggleObscure,
     ValueChanged<String>? onChanged,
+    bool hasError = false,
   }) {
     return TextField(
       controller: controller,
@@ -952,15 +876,24 @@ class _LoginScreenState extends State<LoginScreen>
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFD1D5DB), width: 1.5),
+          borderSide: BorderSide(
+            color: hasError ? const Color(0xFFE99C96) : const Color(0xFFD1D5DB),
+            width: 1.5,
+          ),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFD1D5DB), width: 1.5),
+          borderSide: BorderSide(
+            color: hasError ? const Color(0xFFE99C96) : const Color(0xFFD1D5DB),
+            width: 1.5,
+          ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF1773CF), width: 1.5),
+          borderSide: BorderSide(
+            color: hasError ? const Color(0xFFD9564F) : const Color(0xFF1773CF),
+            width: 1.5,
+          ),
         ),
       ),
     );

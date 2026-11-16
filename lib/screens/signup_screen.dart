@@ -5,6 +5,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../main.dart';
 import '../services/email_service.dart';
 import '../services/sign_language_mode.dart';
+import '../widgets/field_error_box.dart';
 import '../widgets/sign_video_card.dart';
 import 'verify_email_screen.dart';
 
@@ -49,6 +50,7 @@ class _SignupScreenState extends State<SignupScreen>
   String _nameError = '';
   String _emailError = '';
   String _passwordError = '';
+  String _formError = '';
 
   @override
   void initState() {
@@ -94,7 +96,9 @@ class _SignupScreenState extends State<SignupScreen>
       if (!_emailFocus.hasFocus) _validateEmail(_emailController.text);
     });
     _passwordFocus.addListener(() {
-      if (!_passwordFocus.hasFocus) _validatePassword(_passwordController.text);
+      if (!_passwordFocus.hasFocus) {
+        _validatePassword(_passwordController.text);
+      }
     });
     _confirmPasswordFocus.addListener(() {
       if (!_confirmPasswordFocus.hasFocus) {
@@ -169,12 +173,14 @@ class _SignupScreenState extends State<SignupScreen>
 
   void _validateName(String val) {
     setState(() {
+      _formError = '';
       _nameError = val.trim().isEmpty ? 'الاسم الكامل مطلوب' : '';
     });
   }
 
   void _validateEmail(String val) {
     setState(() {
+      _formError = '';
       _emailError = val.trim().isEmpty
           ? 'البريد الإلكتروني مطلوب'
           : !RegExp(r'^[\w\-\.]+@([\w\-]+\.)+[\w\-]{2,4}$').hasMatch(val.trim())
@@ -185,6 +191,7 @@ class _SignupScreenState extends State<SignupScreen>
 
   void _validatePassword(String val) {
     setState(() {
+      _formError = '';
       _passwordError = val.isEmpty
           ? 'كلمة المرور مطلوبة'
           : val.length < 8
@@ -201,7 +208,6 @@ class _SignupScreenState extends State<SignupScreen>
     });
   }
 
-  // ✅ تسجيل حساب فعلي عبر Google (API الجديد v7+)
   Future<void> _continueWithGoogle() async {
     setState(() => _isLoading = true);
     try {
@@ -225,7 +231,6 @@ class _SignupScreenState extends State<SignupScreen>
         return;
       }
 
-      // ✅ لو أول مرة يسجل فيها هذا المستخدم، ننشئ سجل له بفايرستور
       final docRef = FirebaseFirestore.instance
           .collection('User')
           .doc(user.uid);
@@ -250,26 +255,10 @@ class _SignupScreenState extends State<SignupScreen>
       }
     } on GoogleSignInException catch (e) {
       if (mounted && e.code != GoogleSignInExceptionCode.canceled) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'تعذّر إنشاء الحساب عبر Google، حاولي مرة أخرى',
-              style: TextStyle(fontFamily: 'IBMPlexSansArabic'),
-            ),
-          ),
-        );
+        setState(() => _formError = 'تعذّر إنشاء الحساب عبر Google، حاول مرة أخرى');
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'تعذّر إنشاء الحساب عبر Google، حاولي مرة أخرى',
-              style: TextStyle(fontFamily: 'IBMPlexSansArabic'),
-            ),
-          ),
-        );
-      }
+      if (mounted) setState(() => _formError = 'تعذّر إنشاء الحساب عبر Google، حاول مرة أخرى');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -282,8 +271,9 @@ class _SignupScreenState extends State<SignupScreen>
 
     if (_nameError.isNotEmpty ||
         _emailError.isNotEmpty ||
-        _passwordError.isNotEmpty)
+        _passwordError.isNotEmpty) {
       return;
+    }
 
     if (_confirmPasswordController.text.isEmpty) {
       setState(() => _confirmPasswordStatus = 'empty');
@@ -295,7 +285,10 @@ class _SignupScreenState extends State<SignupScreen>
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _formError = '';
+    });
 
     try {
       final credential = await FirebaseAuth.instance
@@ -342,11 +335,10 @@ class _SignupScreenState extends State<SignupScreen>
       } else if (e.code == 'weak-password') {
         setState(() => _passwordError = 'كلمة المرور ضعيفة جداً');
       } else {
-        if (mounted)
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('حدث خطأ، حاولي مرة أخرى')),
-          );
+        if (mounted) setState(() => _formError = 'تعذّر إنشاء الحساب، حاول مرة أخرى');
       }
+    } catch (_) {
+      if (mounted) setState(() => _formError = 'تعذّر إنشاء الحساب، حاول مرة أخرى');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -578,6 +570,7 @@ class _SignupScreenState extends State<SignupScreen>
                                   controller: _nameController,
                                   focusNode: _nameFocus,
                                   onChanged: _validateName,
+                                  hasError: _nameError.isNotEmpty,
                                 ),
                                 _buildErrorText(_nameError),
                                 const SizedBox(height: 11),
@@ -589,6 +582,7 @@ class _SignupScreenState extends State<SignupScreen>
                                   controller: _emailController,
                                   focusNode: _emailFocus,
                                   onChanged: _validateEmail,
+                                  hasError: _emailError.isNotEmpty,
                                 ),
                                 _buildErrorText(_emailError),
                                 const SizedBox(height: 11),
@@ -599,10 +593,11 @@ class _SignupScreenState extends State<SignupScreen>
                                     setState(
                                       () => _passwordFieldFocused = hasFocus,
                                     );
-                                    if (!hasFocus)
+                                    if (!hasFocus) {
                                       _validatePassword(
                                         _passwordController.text,
                                       );
+                                    }
                                   },
                                   child: _buildInputField(
                                     hint: 'كلمة المرور',
@@ -618,8 +613,10 @@ class _SignupScreenState extends State<SignupScreen>
                                       _checkPasswordStrength(val);
                                       _validatePassword(val);
                                     },
+                                    hasError: _passwordError.isNotEmpty,
                                   ),
                                 ),
+                                _buildErrorText(_passwordError),
 
                                 if (_passwordFieldFocused ||
                                     _passwordController.text.isNotEmpty)
@@ -702,7 +699,6 @@ class _SignupScreenState extends State<SignupScreen>
                                     ),
                                   ),
 
-                                _buildErrorText(_passwordError),
                                 const SizedBox(height: 11),
 
                                 // ✅ حقل تأكيد كلمة المرور
@@ -712,6 +708,9 @@ class _SignupScreenState extends State<SignupScreen>
                                   obscure: _obscureConfirmPassword,
                                   controller: _confirmPasswordController,
                                   focusNode: _confirmPasswordFocus,
+                                  hasError:
+                                      _confirmPasswordStatus == 'empty' ||
+                                      _confirmPasswordStatus == 'nomatch',
                                   onToggleObscure: () => setState(
                                     () => _obscureConfirmPassword =
                                         !_obscureConfirmPassword,
@@ -757,55 +756,10 @@ class _SignupScreenState extends State<SignupScreen>
                                     ),
                                   ),
                                 if (_confirmPasswordStatus == 'nomatch')
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                      top: 6,
-                                      right: 4,
-                                    ),
-                                    child: Row(
-                                      children: const [
-                                        Icon(
-                                          Icons.cancel_rounded,
-                                          size: 16,
-                                          color: Colors.red,
-                                        ),
-                                        SizedBox(width: 6),
-                                        Text(
-                                          'كلمة المرور غير متطابقة',
-                                          style: TextStyle(
-                                            fontFamily: 'IBMPlexSansArabic',
-                                            fontSize: 12,
-                                            color: Colors.red,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                                  _buildErrorText('كلمة المرور غير متطابقة'),
                                 if (_confirmPasswordStatus == 'empty')
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                      top: 6,
-                                      right: 4,
-                                    ),
-                                    child: Row(
-                                      children: const [
-                                        Icon(
-                                          Icons.cancel_rounded,
-                                          size: 16,
-                                          color: Colors.red,
-                                        ),
-                                        SizedBox(width: 6),
-                                        Text(
-                                          'تأكيد كلمة المرور مطلوب',
-                                          style: TextStyle(
-                                            fontFamily: 'IBMPlexSansArabic',
-                                            fontSize: 12,
-                                            color: Colors.red,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                                  _buildErrorText('تأكيد كلمة المرور مطلوب'),
+                                _buildErrorText(_formError),
 
                                 const SizedBox(height: 20),
 
@@ -1062,28 +1016,7 @@ class _SignupScreenState extends State<SignupScreen>
     );
   }
 
-  Widget _buildErrorText(String error) {
-    if (error.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 6, right: 4),
-      child: Row(
-        children: [
-          const Icon(Icons.cancel_rounded, size: 16, color: Colors.red),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              error,
-              style: const TextStyle(
-                fontFamily: 'IBMPlexSansArabic',
-                fontSize: 12,
-                color: Colors.red,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildErrorText(String error) => FieldErrorBox(message: error);
 
   Widget _buildRequirement(String text, bool met) {
     return Padding(
@@ -1130,6 +1063,7 @@ class _SignupScreenState extends State<SignupScreen>
     bool obscure = false,
     VoidCallback? onToggleObscure,
     ValueChanged<String>? onChanged,
+    bool hasError = false,
   }) {
     return TextField(
       controller: controller,
@@ -1171,15 +1105,24 @@ class _SignupScreenState extends State<SignupScreen>
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFD1D5DB), width: 1.5),
+          borderSide: BorderSide(
+            color: hasError ? const Color(0xFFE99C96) : const Color(0xFFD1D5DB),
+            width: 1.5,
+          ),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFD1D5DB), width: 1.5),
+          borderSide: BorderSide(
+            color: hasError ? const Color(0xFFE99C96) : const Color(0xFFD1D5DB),
+            width: 1.5,
+          ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF1773CF), width: 1.5),
+          borderSide: BorderSide(
+            color: hasError ? const Color(0xFFD9564F) : const Color(0xFF1773CF),
+            width: 1.5,
+          ),
         ),
       ),
     );
