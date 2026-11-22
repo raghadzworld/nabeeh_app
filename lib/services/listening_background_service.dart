@@ -55,7 +55,7 @@ int _toWatchVibrationCode(int appValue) => 4 - appValue;
 
 const int _kChunkSeconds = 3;
 const int _kBytesPerChunk = WatchAudioSocket.sampleRate * 2 * _kChunkSeconds;
-const int _kMaxDetectionEntries = 30;
+const int _kMaxDetectionEntries = 100;
 
 /// يُستدعى مرة وحدة من main() قبل runApp — يجهّز قناة الإشعار الإلزامية
 /// ويهيّئ خدمة الخلفية بدون تشغيلها (تشتغل فقط لما المستخدم يضغط المايك).
