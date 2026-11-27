@@ -63,6 +63,37 @@ class ProfileInfoScreen extends StatelessWidget {
     }
   }
 
+  // --- Delete all of the user's Firestore data ---
+  // Deleting a Firestore document does NOT delete its subcollections, so the
+  // user's sound categories (and their sounds), reminders and emergency
+  // contacts are deleted first, then the User document itself.
+  Future<void> _deleteUserData(String uid) async {
+    final db = FirebaseFirestore.instance;
+    final userRef = db.collection('User').doc(uid);
+    final refs = <DocumentReference>[];
+
+    final categories = await userRef.collection('SoundCategories').get();
+    for (final category in categories.docs) {
+      final sounds = await category.reference.collection('Sounds').get();
+      refs.addAll(sounds.docs.map((d) => d.reference));
+      refs.add(category.reference);
+    }
+    for (final name in ['Reminders', 'EmergencyContacts']) {
+      final snapshot = await userRef.collection(name).get();
+      refs.addAll(snapshot.docs.map((d) => d.reference));
+    }
+    refs.add(userRef);
+
+    // A Firestore batch can hold at most 500 writes
+    for (var i = 0; i < refs.length; i += 500) {
+      final batch = db.batch();
+      for (final ref in refs.skip(i).take(500)) {
+        batch.delete(ref);
+      }
+      await batch.commit();
+    }
+  }
+
   void _confirmDeleteAccount(BuildContext context) {
     showDialog(
       context: context,
@@ -110,7 +141,7 @@ class ProfileInfoScreen extends StatelessWidget {
                             try {
                               final user = FirebaseAuth.instance.currentUser;
                               if (user != null) {
-                                await FirebaseFirestore.instance.collection('User').doc(user.uid).delete();
+                                await _deleteUserData(user.uid);
                                 await user.delete();
                                 if (context.mounted) {
                                   Navigator.of(dialogContext).pop();

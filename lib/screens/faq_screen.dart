@@ -67,8 +67,17 @@ const List<_FaqItem> _kFaqItems = [
   ),
 ];
 
-class FaqScreen extends StatelessWidget {
+class FaqScreen extends StatefulWidget {
   const FaqScreen({super.key});
+
+  @override
+  State<FaqScreen> createState() => _FaqScreenState();
+}
+
+class _FaqScreenState extends State<FaqScreen> {
+  /// رقم السؤال المفتوح حاليًا (null = كل الأسئلة مقفلة).
+  /// سؤال واحد بس يكون مفتوح بنفس الوقت: فتح سؤال يقفل اللي قبله.
+  int? _openIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -100,8 +109,15 @@ class FaqScreen extends StatelessWidget {
                         const SignLanguageVideoBox(
                           videoAsset: 'assets/videos/sign_faq.mp4',
                         ),
-                        for (final item in _kFaqItems) ...[
-                          _FaqCard(item: item),
+                        for (var i = 0; i < _kFaqItems.length; i++) ...[
+                          _FaqCard(
+                            item: _kFaqItems[i],
+                            isOpen: _openIndex == i,
+                            // الضغط على سؤال مفتوح يقفله، والضغط على سؤال ثاني يفتحه ويقفل الأول
+                            onTap: () => setState(
+                              () => _openIndex = _openIndex == i ? null : i,
+                            ),
+                          ),
                           const SizedBox(height: 12),
                         ],
                       ],
@@ -162,23 +178,18 @@ class FaqScreen extends StatelessWidget {
   }
 }
 
-/// بطاقة سؤال: الضغط عليها يفتح الجواب ويقفله
-class _FaqCard extends StatefulWidget {
+/// بطاقة سؤال: الصفحة هي اللي تحدد إذا كانت مفتوحة (عشان يكون سؤال واحد بس مفتوح)
+class _FaqCard extends StatelessWidget {
   final _FaqItem item;
-  const _FaqCard({required this.item});
-
-  @override
-  State<_FaqCard> createState() => _FaqCardState();
-}
-
-class _FaqCardState extends State<_FaqCard> {
-  bool _open = false;
+  final bool isOpen;
+  final VoidCallback onTap;
+  const _FaqCard({required this.item, required this.isOpen, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => setState(() => _open = !_open),
+      onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 250),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
@@ -186,7 +197,7 @@ class _FaqCardState extends State<_FaqCard> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: _open ? const Color(0xFF181059) : NabeehColors.slate200,
+            color: isOpen ? const Color(0xFF181059) : NabeehColors.slate200,
             width: 1.2,
           ),
         ),
@@ -207,7 +218,7 @@ class _FaqCardState extends State<_FaqCard> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    widget.item.question,
+                    item.question,
                     style: const TextStyle(
                       fontFamily: 'IBMPlexSansArabic',
                       fontSize: 16,
@@ -219,7 +230,7 @@ class _FaqCardState extends State<_FaqCard> {
                 ),
                 const SizedBox(width: 8),
                 AnimatedRotation(
-                  turns: _open ? 0.5 : 0,
+                  turns: isOpen ? 0.5 : 0,
                   duration: const Duration(milliseconds: 250),
                   child: const Icon(
                     Icons.keyboard_arrow_down_rounded,
@@ -232,11 +243,11 @@ class _FaqCardState extends State<_FaqCard> {
               duration: const Duration(milliseconds: 250),
               curve: Curves.easeInOut,
               alignment: Alignment.topCenter,
-              child: _open
+              child: isOpen
                   ? Padding(
                       padding: const EdgeInsets.only(top: 12, right: 32),
                       child: Text(
-                        widget.item.answer,
+                        item.answer,
                         style: const TextStyle(
                           fontFamily: 'IBMPlexSansArabic',
                           fontSize: 14,
